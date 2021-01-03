@@ -108,7 +108,7 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
  */
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
-    int rootProcessor = 0, itCount = 0;
+    int rootProcessor = 0, numberOfIterations = 0;
     bool precisionNotReached = false;
 
     // find number of rows to process per processor
@@ -128,7 +128,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
     do { // iterate until converged
         if (currentRank == rootProcessor) {
-            if (itCount == 0) {
+            if (numberOfIterations == 0) {
                 // send chunks to each processor
                 int totalElementsSent = 0;
 
@@ -217,7 +217,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaries);
             }
         } else {
-            if (itCount == 0) {
+            if (numberOfIterations == 0) {
                 // rec chunks and store
                 rowsInChunk = rowSplit[currentRank] + NUM_OF_BOUNDARY_ROWS;
                 elemsInChunk = rowsInChunk * dimension;
@@ -270,8 +270,8 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
         }
 
-        printf("it: %d\n", itCount);
-        itCount++;
+        printf("it: %d\n", numberOfIterations);
+        numberOfIterations++;
     } while (!precisionNotReached);
 
     // and make sure all nodes have finished the work
@@ -285,13 +285,12 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     if (currentRank == rootProcessor) {
         avgRuntime /= numOfProcessors;
         printf("-------------------\nRuntime: %f\n", avgRuntime);
-        printf("\n\nTook %d iterations.\n\n", itCount);
     }
 
-    // if (currentRank == rootProcessor) {
-    //     printf("\n\nFINAL ARRAY:\n");
-    //     printArray(testValues, dimension);
-    // }
+    if (currentRank == rootProcessor) {
+        printf("\n\nFINAL ARRAY:\n");
+        printArray(testValues, dimension);
+    }
 
     free(rowSplit);
     if (chunk != NULL) {
