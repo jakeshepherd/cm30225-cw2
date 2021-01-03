@@ -27,15 +27,15 @@ void printArray(double *arr, int dimension) {
  * dimension: dimension of the problem array
  * precision: precision at which the array has converged
  * rank: rank of the processor
- * totalProcs: total processors being used
+ * numOfProcessors: total processors being used
  * rowSplit: array detailing the number of rows per processor
  */
-void printStartingInfo(int dimension, double precision, int rank, int totalProcs, int *rowSplit) {
+void printStartingInfo(int dimension, double precision, int rank, int numOfProcessors, int *rowSplit) {
     if (rank == ROOT_PROCESSOR_RANK) {
-        printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dimension, precision, totalProcs);
+        printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dimension, precision, numOfProcessors);
         printf("Work split: [");
 
-        for (int i = 0; i < totalProcs; i++) {
+        for (int i = 0; i < numOfProcessors; i++) {
             printf("p%d: %d, ", i, rowSplit[i]);
         }
         printf("]\n\n");
@@ -52,10 +52,10 @@ void printStartingInfo(int dimension, double precision, int rank, int totalProcs
  * 
  * dest: int array to store the result
  * dimension: dimension of the problem array
- * totalProcs: total processors being used
+ * numOfProcessors: total processors being used
  */
-void splitRowsPerProcessor(int *dest, int dimension, int totalProcs) {
-    int useableProcs = totalProcs - 1; // accounting for no work in root
+void splitRowsPerProcessor(int *dest, int dimension, int numOfProcessors) {
+    int useableProcs = numOfProcessors - 1; // accounting for no work in root
 
     dest[0] = 0;
     for (int i = 1; i <= useableProcs; i++) {
@@ -105,18 +105,18 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
  * dimension: dimension of the problem array 
  * prec: precision at which the problem has converged 
  * currentRank: rank of the current processor 
- * totalProcs: total number of processors being used
+ * numOfProcessors: total number of processors being used
  */
-void testIt(double *testValues, int dimension, double prec, int currentRank, int totalProcs) {
+void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
     int itCount = 0;
     bool hasConverged = false;
 
     // find number of rows to process per processor
-    int *rowSplit = malloc(sizeof(int) * (unsigned) (totalProcs));
-    splitRowsPerProcessor(rowSplit, dimension, totalProcs);
+    int *rowSplit = malloc(sizeof(int) * (unsigned) (numOfProcessors));
+    splitRowsPerProcessor(rowSplit, dimension, numOfProcessors);
 
-    printStartingInfo(dimension, prec, currentRank, totalProcs, rowSplit);
+    printStartingInfo(dimension, prec, currentRank, numOfProcessors, rowSplit);
 
     int rowsInChunk;
     int elemsInChunk;
@@ -133,7 +133,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 // send chunks to each processor
                 int totalElementsSent = 0;
 
-                for (int i = 1; i < totalProcs; i++) {
+                for (int i = 1; i < numOfProcessors; i++) {
                     int numRowsToSend = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
                     int elementsToSend = numRowsToSend * dimension;
 
@@ -145,7 +145,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
                 int rowsSent = 0; // the total rows covered by the sends
 
-                for (int i = 1; i < totalProcs; i++) {
+                for (int i = 1; i < numOfProcessors; i++) {
                     int firstBoundaryRow = rowsSent;
                     int lastBoundaryRow = firstBoundaryRow + rowSplit[i] + 1;
 
@@ -165,7 +165,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             // receive chunks are converged? & updated hasConverged
             // hasConverged = true if all chunks are converged
             // check whether chunks have hit precision, if any single chunk hasn't, withinPrecision is false
-            for (int i = 1; i < totalProcs; i++) {
+            for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating chunk convergence from each child processor
                 MPI_Recv(&chunkHasConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -180,7 +180,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             if (hasConverged) {
                 // rec chunks & merge to main array
                 int totalRowsReceived= 1;
-                for (int i = 1; i < totalProcs; i++) {
+                for (int i = 1; i < numOfProcessors; i++) {
                     rowsInChunk = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
                     // size of the chunk in terms of doubles, without the buffers
                     elemsInChunk = rowsInChunk * dimension;
@@ -202,7 +202,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
                 int firstIndex, lastIndex = 0;
 
-                for (int i = 1; i < totalProcs; i++) { 
+                for (int i = 1; i < numOfProcessors; i++) { 
                     MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                     
                     firstIndex = lastIndex + 1;
@@ -284,7 +284,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
     // and get the average runtime
     if (currentRank == ROOT_PROCESSOR_RANK) {
-        avgRuntime /= totalProcs;
+        avgRuntime /= numOfProcessors;
         printf("-------------------\nRuntime: %f\n", avgRuntime);
         printf("\n\nTook %d iterations.\n\n", itCount);
     }
@@ -301,7 +301,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 }
 
 int main(int argc, char *argv[]) {
-    int currentRank, totalProcs;
+    int currentRank, numOfProcessors;
 
     // defaults, will be updated
     int dimension = 0;
@@ -311,9 +311,9 @@ int main(int argc, char *argv[]) {
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &currentRank);
-    MPI_Comm_size(MPI_COMM_WORLD, &totalProcs);
+    MPI_Comm_size(MPI_COMM_WORLD, &numOfProcessors);
 
-    if (totalProcs < 2) {
+    if (totalPro < 2) {
         printf("-- There must be at least 2 processors.\n");
         exit(-1);
     }
@@ -368,7 +368,7 @@ int main(int argc, char *argv[]) {
     }
 
     // run the solver
-    testIt(testValues, dimension, precision, currentRank, totalProcs);
+    testIt(testValues, dimension, precision, currentRank, numOfProcessors);
 
     MPI_Finalize();
     if (testValues != NULL) {
