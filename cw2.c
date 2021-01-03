@@ -109,7 +109,7 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
     int rootProcessor = 0, itCount = 0;
-    bool hasConverged = false;
+    bool precisionNotReached = false;
 
     // find number of rows to process per processor
     int *rowSplit = malloc(sizeof(int) * (unsigned) (numOfProcessors));
@@ -158,25 +158,25 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 }
                 free(boundaries);
             }
-            hasConverged = true;
+            precisionNotReached = true;
             bool chunkHasConverged = false;
 
-            // receive chunks are converged? & updated hasConverged
-            // hasConverged = true if all chunks are converged
+            // receive chunks are converged? & updated precisionNotReached
+            // precisionNotReached = true if all chunks are converged
             // check whether chunks have hit precision, if any single chunk hasn't, withinPrecision is false
             for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating chunk convergence from each child processor
                 MPI_Recv(&chunkHasConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                 if (!chunkHasConverged) {
-                    hasConverged = false;
+                    precisionNotReached = false;
                 }
             }
 
             // broadcast array convergence to child processors
-            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
+            MPI_Bcast(&precisionNotReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
-            if (hasConverged) {
+            if (precisionNotReached) {
                 // rec chunks & merge to main array
                 int totalRowsReceived= 1;
                 for (int i = 1; i < numOfProcessors; i++) {
@@ -247,11 +247,11 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             // send chunk converged to root
             MPI_Send(&chunkConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
 
-            // receive broadcast for (all array) hasConverged
+            // receive broadcast for (all array) precisionNotReached
             // receive withinPrecision bool from the master process, is a blocking call so also acts as a synchronise
-            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
+            MPI_Bcast(&precisionNotReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
-            if (hasConverged) {
+            if (precisionNotReached) {
                 // send updated chunks to root
                 // send back to the master process only modified inner rows of the chunk
 
@@ -272,7 +272,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
         printf("it: %d\n", itCount);
         itCount++;
-    } while (!hasConverged);
+    } while (!precisionNotReached);
 
     // and make sure all nodes have finished the work
     MPI_Barrier(MPI_COMM_WORLD);
