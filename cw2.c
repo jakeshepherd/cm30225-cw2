@@ -47,22 +47,22 @@ void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, 
     }
 }
 
-void averageRows(double *readArr, int numRows, int dimension, double prec, bool *processorDataConverged) {
-    double *temp = malloc(sizeof(double) * (unsigned) (numRows * dimension));
-    memcpy(temp, readArr, sizeof(double) * (unsigned) (numRows * dimension));
+void averageRows(double *oldAverages, int rowsToAverage, int dimension, double prec, bool *processorDataConverged) {
+    double *temp = malloc(sizeof(double) * (unsigned) (rowsToAverage * dimension));
+    memcpy(temp, oldAverages, sizeof(double) * (unsigned) (rowsToAverage * dimension));
     *processorDataConverged = true;
 
-    for (int i = 1; i < numRows - 1; i++) {
+    for (int i = 1; i < rowsToAverage - 1; i++) {
         for (int j = 1; j < dimension - 1; j++) {
-            double avg = (
+            double average = (
                 temp[dimension * (i + 1) + j] +
-                temp[dimension * (i - 1) + j] + 
-                temp[dimension * i + (j + 1)] + 
+                temp[dimension * (i - 1) + j] +
+                temp[dimension * i + (j + 1)] +
                 temp[dimension * i + (j - 1)]
-                ) / 4.0;
+            ) / 4.0;
 
-            if (fabs(avg - temp[dimension * i + j]) > prec) {
-                readArr[dimension * i + j] = avg;
+            if (fabs(temp[dimension * i + j] - average) > prec) {
+                oldAverages[dimension * i + j] = average;
                 *processorDataConverged = false;
             }
         }
@@ -85,18 +85,16 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
  */
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
-    int rootProcessor = 0, numberOfIterations = 0;
+    int rootProcessor = 0, numberOfIterations = 0, rowsInChunk, elemsInChunk;
+    double *updatedRows, *dataPerProcessor = NULL;
     bool precisionNotReached = false;
 
     // find number of rows to process per processor
     int *rowSplitPerProcessor = malloc(sizeof(int) * (unsigned) (numOfProcessors));
     distributeRowIndexesToProccesors(rowSplitPerProcessor, dimension, numOfProcessors);
 
-    int rowsInChunk, elemsInChunk;
-    double *updatedRows;
-    double *dataPerProcessor = NULL;
-
-    // make sure all nodes are ready to work before timing
+    // Start timing
+    // Barrier here to make sure that all the processors available are all ready to go
     MPI_Barrier(MPI_COMM_WORLD);
     runtime = MPI_Wtime();
 
@@ -214,7 +212,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaries);
             }
 
-            // avg chunks and check converged
+            // average chunks and check converged
             bool processorDataConverged = false;
             averageRows(dataPerProcessor, rowsInChunk, dimension, prec, &processorDataConverged);
 
