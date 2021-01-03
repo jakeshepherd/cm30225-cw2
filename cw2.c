@@ -6,7 +6,6 @@
 #include <sys/time.h>
 #include <mpi.h>
 
-#define ROOT_PROCESSOR_RANK 0
 #define NUM_OF_BOUNDARY_ROWS 2
 
 void printArray(double *arr, int dimension) {
@@ -31,7 +30,7 @@ void printArray(double *arr, int dimension) {
  * rowSplit: array detailing the number of rows per processor
  */
 void printStartingInfo(int dimension, double precision, int rank, int numOfProcessors, int *rowSplit) {
-    if (rank == ROOT_PROCESSOR_RANK) {
+    if (rank == 0) {
         printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dimension, precision, numOfProcessors);
         printf("Work split: [");
 
@@ -109,7 +108,7 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
  */
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
-    int itCount = 0;
+    int rootProcessor = 0, itCount = 0;
     bool hasConverged = false;
 
     // find number of rows to process per processor
@@ -128,7 +127,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     runtime = MPI_Wtime();
 
     do { // iterate until converged
-        if (currentRank == ROOT_PROCESSOR_RANK) {
+        if (currentRank == rootProcessor) {
             if (itCount == 0) {
                 // send chunks to each processor
                 int totalElementsSent = 0;
@@ -175,7 +174,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
 
             // broadcast array convergence to child processors
-            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, ROOT_PROCESSOR_RANK, MPI_COMM_WORLD);
+            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
             if (hasConverged) {
                 // rec chunks & merge to main array
@@ -226,11 +225,11 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 // memory for received chunk
                 chunk = malloc(sizeof(double) * (unsigned) (rowsInChunk * dimension));
 
-                MPI_Recv(chunk, elemsInChunk, MPI_DOUBLE, ROOT_PROCESSOR_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(chunk, elemsInChunk, MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             } else {
                 // rec boundaries and store
                 double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
-                MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                 //set first row of portion to first border
                 for (int i = 0; i < dimension; i++) {
@@ -246,17 +245,17 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             averageRows(chunk, rowsInChunk, dimension, prec, &chunkConverged);
 
             // send chunk converged to root
-            MPI_Send(&chunkConverged, 1, MPI_C_BOOL, ROOT_PROCESSOR_RANK, 2, MPI_COMM_WORLD);
+            MPI_Send(&chunkConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
 
             // receive broadcast for (all array) hasConverged
             // receive withinPrecision bool from the master process, is a blocking call so also acts as a synchronise
-            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, ROOT_PROCESSOR_RANK, MPI_COMM_WORLD);
+            MPI_Bcast(&hasConverged, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
             if (hasConverged) {
                 // send updated chunks to root
                 // send back to the master process only modified inner rows of the chunk
 
-                MPI_Send(chunk, elemsInChunk, MPI_DOUBLE, ROOT_PROCESSOR_RANK, 1, MPI_COMM_WORLD);
+                MPI_Send(chunk, elemsInChunk, MPI_DOUBLE, rootProcessor, 1, MPI_COMM_WORLD);
             } else {
                 // send boundaries to root
                 double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
@@ -266,7 +265,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     boundaries[dimension * 1 + j] = chunk[dimension * (rowsInChunk - NUM_OF_BOUNDARY_ROWS) + j];
                 }
 
-                MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 3, MPI_COMM_WORLD);
+                MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, rootProcessor, 3, MPI_COMM_WORLD);
                 free(boundaries);
             }
         }
@@ -280,16 +279,16 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     runtime = MPI_Wtime() - runtime;
 
     // reduce (sum) all processor runtimes into a single value in the root
-    MPI_Reduce(&runtime, &avgRuntime, 1, MPI_DOUBLE, MPI_SUM, ROOT_PROCESSOR_RANK, MPI_COMM_WORLD);
+    MPI_Reduce(&runtime, &avgRuntime, 1, MPI_DOUBLE, MPI_SUM, rootProcessor, MPI_COMM_WORLD);
 
     // and get the average runtime
-    if (currentRank == ROOT_PROCESSOR_RANK) {
+    if (currentRank == rootProcessor) {
         avgRuntime /= numOfProcessors;
         printf("-------------------\nRuntime: %f\n", avgRuntime);
         printf("\n\nTook %d iterations.\n\n", itCount);
     }
 
-    // if (currentRank == ROOT_PROCESSOR_RANK) {
+    // if (currentRank == rootProcessor) {
     //     printf("\n\nFINAL ARRAY:\n");
     //     printArray(testValues, dimension);
     // }
@@ -301,19 +300,16 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 }
 
 int main(int argc, char *argv[]) {
-    int currentRank, numOfProcessors;
-
-    // defaults, will be updated
-    int dimension = 0;
+    int currentRank, numOfProcessors, dimension = 0, rootProcessor = 0;
     double precision = 0.01;
-    char inputFilename[32];
     double *testValues = NULL;
+    char inputFilename[32];
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &currentRank);
     MPI_Comm_size(MPI_COMM_WORLD, &numOfProcessors);
 
-    if (totalPro < 2) {
+    if (numOfProcessors < 2) {
         printf("-- There must be at least 2 processors.\n");
         exit(-1);
     }
@@ -334,7 +330,7 @@ int main(int argc, char *argv[]) {
     }
 
     // read in data in root
-    if (currentRank == ROOT_PROCESSOR_RANK) {
+    if (currentRank == rootProcessor) {
         FILE *fp;
         char dimStr[6]; // max dimension = 99,999 + termination char
         fp = fopen(inputFilename, "r");
@@ -367,7 +363,6 @@ int main(int argc, char *argv[]) {
         fclose(fp);
     }
 
-    // run the solver
     testIt(testValues, dimension, precision, currentRank, numOfProcessors);
 
     MPI_Finalize();
