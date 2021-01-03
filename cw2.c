@@ -45,12 +45,15 @@ void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, 
     }
 }
 
-void calculateAverage(double *oldAverages, int rowsToAverage, int dimension, double prec, bool *processorDataConverged) {
-    double *temp = malloc(sizeof(double) * (unsigned) (rowsToAverage * dimension));
-    memcpy(temp, oldAverages, sizeof(double) * (unsigned) (rowsToAverage * dimension));
+/*
+ * Each processor will run this function individually on the data that it has to average it
+ */
+void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimension, double prec, bool *processorDataConverged) {
+    double *temp = malloc(sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
+    memcpy(temp, oldAverages, sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
     *processorDataConverged = true;
 
-    for (int i = 1; i < rowsToAverage - 1; i++) {
+    for (int i = 1; i < numberOfRowsToAverage - 1; i++) {
         for (int j = 1; j < dimension - 1; j++) {
             double average = (
                 temp[dimension * (i + 1) + j] +
