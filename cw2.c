@@ -131,7 +131,7 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
     int rowsInChunk;
     int elemsInChunk;
     double *updatedRows;
-    double *chunk; // chunk of rows
+    double *chunk = NULL; // chunk of rows
 
     // make sure all nodes are ready to work before timing
     MPI_Barrier(MPI_COMM_WORLD);
@@ -305,7 +305,9 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
     // }
 
     free(rowSplit);
-    free(chunk);
+    if (chunk != NULL) {
+        free(chunk);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -379,7 +381,9 @@ int main(int argc, char *argv[]) {
     relaxMpi(initVals, dim, precision, currentRank, totalProcs);
 
     MPI_Finalize();
-    free(initVals);
+    if (initVals != NULL) {
+        free(initVals);
+    }
 
     return 0;
 }
