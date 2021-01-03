@@ -70,10 +70,10 @@ void splitRowsPerProcessor(int *dest, int dimension, int numOfProcessors) {
     }
 }
 
-void averageRows(double *readArr, int numRows, int dimension, double prec, bool *chunkConverged) {
+void averageRows(double *readArr, int numRows, int dimension, double prec, bool *processorDataConverged) {
     double *temp = malloc(sizeof(double) * (unsigned) (numRows * dimension));
     memcpy(temp, readArr, sizeof(double) * (unsigned) (numRows * dimension));
-    *chunkConverged = true;
+    *processorDataConverged = true;
 
     for (int i = 1; i < numRows - 1; i++) {
         for (int j = 1; j < dimension - 1; j++) {
@@ -86,7 +86,7 @@ void averageRows(double *readArr, int numRows, int dimension, double prec, bool 
 
             if (fabs(avg - temp[dimension * i + j]) > prec) {
                 readArr[dimension * i + j] = avg;
-                *chunkConverged = false;
+                *processorDataConverged = false;
             }
         }
     }
@@ -241,11 +241,11 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
 
             // avg chunks and check converged
-            bool chunkConverged = false;
-            averageRows(chunk, rowsInChunk, dimension, prec, &chunkConverged);
+            bool processorDataConverged = false;
+            averageRows(chunk, rowsInChunk, dimension, prec, &processorDataConverged);
 
             // send chunk converged to root
-            MPI_Send(&chunkConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
+            MPI_Send(&processorDataConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
 
             // receive broadcast for (all array) precisionNotReached
             // receive withinPrecision bool from the master process, is a blocking call so also acts as a synchronise
