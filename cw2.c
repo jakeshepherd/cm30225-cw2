@@ -27,45 +27,46 @@ void printArray(double *arr, int dimension) {
  * precision: precision at which the array has converged
  * rank: rank of the processor
  * numOfProcessors: total processors being used
- * rowSplit: array detailing the number of rows per processor
+ * rowSplitPerProcessor: array detailing the number of rows per processor
  */
-void printStartingInfo(int dimension, double precision, int rank, int numOfProcessors, int *rowSplit) {
+void printStartingInfo(int dimension, double precision, int rank, int numOfProcessors, int *rowSplitPerProcessor) {
     if (rank == 0) {
         printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dimension, precision, numOfProcessors);
         printf("Work split: [");
 
         for (int i = 0; i < numOfProcessors; i++) {
-            printf("p%d: %d, ", i, rowSplit[i]);
+            printf("p%d: %d, ", i, rowSplitPerProcessor[i]);
         }
         printf("]\n\n");
     }
 }
 
 /*
- * Function: splitRowsPerProcessor
+ * Function: distributeRowIndexesToProccesors
  * ----------------------------
  * Allocate an even distribution of rows to available processors. The 
  * available processors is equal to the total processors - 1. If the 
  * problem size is not evenly divisable, the remainders will be spread
  * over the first n processors, with n equal to the remainder rows.
  * 
- * dest: int array to store the result
+ * rowSplitPerProcessor: int array to store the result
  * dimension: dimension of the problem array
  * numOfProcessors: total processors being used
  */
-void splitRowsPerProcessor(int *dest, int dimension, int numOfProcessors) {
-    int useableProcs = numOfProcessors - 1; // accounting for no work in root
+void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, int numOfProcessors) {
+    // accounting for no work in root
+    int useableProcs = numOfProcessors - 1;
 
-    dest[0] = 0;
+    rowSplitPerProcessor[0] = 0;
     for (int i = 1; i <= useableProcs; i++) {
-        dest[i] = (dimension - NUM_OF_BOUNDARY_ROWS) / useableProcs;
+        rowSplitPerProcessor[i] = (dimension - NUM_OF_BOUNDARY_ROWS) / useableProcs;
     }
 
     int remainder = (dimension - NUM_OF_BOUNDARY_ROWS) % useableProcs;
     if (remainder > 0) {
         // evenly distribute the remainder rows
         for (int i = 1; i <= remainder; i++) {
-            dest[i]++;
+            rowSplitPerProcessor[i]++;
         }
     }
 }
@@ -112,10 +113,10 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     bool precisionNotReached = false;
 
     // find number of rows to process per processor
-    int *rowSplit = malloc(sizeof(int) * (unsigned) (numOfProcessors));
-    splitRowsPerProcessor(rowSplit, dimension, numOfProcessors);
+    int *rowSplitPerProcessor = malloc(sizeof(int) * (unsigned) (numOfProcessors));
+    distributeRowIndexesToProccesors(rowSplitPerProcessor, dimension, numOfProcessors);
 
-    printStartingInfo(dimension, prec, currentRank, numOfProcessors, rowSplit);
+    printStartingInfo(dimension, prec, currentRank, numOfProcessors, rowSplitPerProcessor);
 
     int rowsInChunk;
     int elemsInChunk;
@@ -133,7 +134,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 int totalElementsSent = 0;
 
                 for (int i = 1; i < numOfProcessors; i++) {
-                    int numRowsToSend = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
+                    int numRowsToSend = rowSplitPerProcessor[i] + NUM_OF_BOUNDARY_ROWS;
                     int elementsToSend = numRowsToSend * dimension;
 
                     MPI_Send(&testValues[totalElementsSent], elementsToSend, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
@@ -146,7 +147,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
                 for (int i = 1; i < numOfProcessors; i++) {
                     int firstBoundaryRow = rowsSent;
-                    int lastBoundaryRow = firstBoundaryRow + rowSplit[i] + 1;
+                    int lastBoundaryRow = firstBoundaryRow + rowSplitPerProcessor[i] + 1;
 
                     for (int j = 0; j < dimension; j++) {
                         boundaries[dimension * 0 + j] = testValues[dimension * firstBoundaryRow + j];
@@ -154,7 +155,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     }
 
                     MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
-                    rowsSent += rowSplit[i];
+                    rowsSent += rowSplitPerProcessor[i];
                 }
                 free(boundaries);
             }
@@ -180,7 +181,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 // rec chunks & merge to main array
                 int totalRowsReceived= 1;
                 for (int i = 1; i < numOfProcessors; i++) {
-                    rowsInChunk = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
+                    rowsInChunk = rowSplitPerProcessor[i] + NUM_OF_BOUNDARY_ROWS;
                     // size of the chunk in terms of doubles, without the buffers
                     elemsInChunk = rowsInChunk * dimension;
 
@@ -205,7 +206,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                     
                     firstIndex = lastIndex + 1;
-                    lastIndex = firstIndex + rowSplit[i] - 1;
+                    lastIndex = firstIndex + rowSplitPerProcessor[i] - 1;
 
                     for (int j = 1; j < dimension -1; j++) {
                         testValues[firstIndex * dimension + j] = boundaries[dimension * 0 + j];
@@ -219,7 +220,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
         } else {
             if (numberOfIterations == 0) {
                 // rec chunks and store
-                rowsInChunk = rowSplit[currentRank] + NUM_OF_BOUNDARY_ROWS;
+                rowsInChunk = rowSplitPerProcessor[currentRank] + NUM_OF_BOUNDARY_ROWS;
                 elemsInChunk = rowsInChunk * dimension;
 
                 // memory for received chunk
@@ -274,7 +275,9 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
         numberOfIterations++;
     } while (!precisionNotReached);
 
-    // and make sure all nodes have finished the work
+    // Barrier here to make sure that every processor has finished it's work
+    // This is so that we do not start calculating the runtime before the work has been done
+    // We can then stop the timer and work out the runtime.
     MPI_Barrier(MPI_COMM_WORLD);
     runtime = MPI_Wtime() - runtime;
 
@@ -292,7 +295,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
         printArray(testValues, dimension);
     }
 
-    free(rowSplit);
+    free(rowSplitPerProcessor);
     if (chunk != NULL) {
         free(chunk);
     }
