@@ -47,7 +47,7 @@ void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, 
     }
 }
 
-void averageRows(double *oldAverages, int rowsToAverage, int dimension, double prec, bool *processorDataConverged) {
+void calculateAverage(double *oldAverages, int rowsToAverage, int dimension, double prec, bool *processorDataConverged) {
     double *temp = malloc(sizeof(double) * (unsigned) (rowsToAverage * dimension));
     memcpy(temp, oldAverages, sizeof(double) * (unsigned) (rowsToAverage * dimension));
     *processorDataConverged = true;
@@ -214,7 +214,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
             // average chunks and check converged
             bool processorDataConverged = false;
-            averageRows(dataPerProcessor, rowsInChunk, dimension, prec, &processorDataConverged);
+            calculateAverage(dataPerProcessor, rowsInChunk, dimension, prec, &processorDataConverged);
 
             // send dataPerProcessor converged to root
             MPI_Send(&processorDataConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
