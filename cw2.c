@@ -9,23 +9,13 @@
 #define ROOT_PROCESSOR_RANK 0
 #define NUM_OF_BOUNDARY_ROWS 2
 
-/*
- * Function: printArray
- * ----------------------------
- * Iterates through the given array and prints each element. 
- * Assumes the array is a square, 2D array.
- * 
- * vals: pointer to the array to print
- * dim: dim of the array
- */
-void printArray(double *vals, int dim) {
-    for (int i=0; i<dim; i++) {
-        printf("(%d)\t", i);
-        for (int j=0; j<dim; j++) {
-            printf("%f, ", vals[dim * i + j]);
-        }
-        printf("\n");
-    }
+void printArray(double *arr, int dimension) {
+   for (int i = 0; i < dimension; i++) {
+      for (int j = 0; j < dimension; j++) {
+         printf("%f, ", arr[dimension * i + j]);
+      }
+      printf("\n");
+   }
 }
 
 /*
@@ -34,15 +24,15 @@ void printArray(double *vals, int dim) {
  * Simple function that prints out the starting values such as dimenstion
  * and the row split between processors
  * 
- * dim: dim of the problem array
+ * dimension: dimension of the problem array
  * precision: precision at which the array has converged
  * rank: rank of the processor
  * totalProcs: total processors being used
  * rowSplit: array detailing the number of rows per processor
  */
-void printStartingInfo(int dim, double precision, int rank, int totalProcs, int *rowSplit) {
+void printStartingInfo(int dimension, double precision, int rank, int totalProcs, int *rowSplit) {
     if (rank == ROOT_PROCESSOR_RANK) {
-        printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dim, precision, totalProcs);
+        printf("\n\ndim: %d\tPrecision: %f\tProcessors: %d\n", dimension, precision, totalProcs);
         printf("Work split: [");
 
         for (int i = 0; i < totalProcs; i++) {
@@ -61,18 +51,18 @@ void printStartingInfo(int dim, double precision, int rank, int totalProcs, int 
  * over the first n processors, with n equal to the remainder rows.
  * 
  * dest: int array to store the result
- * dim: dim of the problem array
+ * dimension: dimension of the problem array
  * totalProcs: total processors being used
  */
-void splitRowsPerProcessor(int *dest, int dim, int totalProcs) {
+void splitRowsPerProcessor(int *dest, int dimension, int totalProcs) {
     int useableProcs = totalProcs - 1; // accounting for no work in root
 
     dest[0] = 0;
     for (int i = 1; i <= useableProcs; i++) {
-        dest[i] = (dim - NUM_OF_BOUNDARY_ROWS) / useableProcs;
+        dest[i] = (dimension - NUM_OF_BOUNDARY_ROWS) / useableProcs;
     }
 
-    int remainder = (dim - NUM_OF_BOUNDARY_ROWS) % useableProcs;
+    int remainder = (dimension - NUM_OF_BOUNDARY_ROWS) % useableProcs;
     if (remainder > 0) {
         // evenly distribute the remainder rows
         for (int i = 1; i <= remainder; i++) {
@@ -81,22 +71,22 @@ void splitRowsPerProcessor(int *dest, int dim, int totalProcs) {
     }
 }
 
-void averageRows(double *readArr, int numRows, int dim, double prec, bool *chunkConverged) {
-    double *temp = malloc(sizeof(double) * (unsigned) (numRows * dim));
-    memcpy(temp, readArr, sizeof(double) * (unsigned) (numRows * dim));
+void averageRows(double *readArr, int numRows, int dimension, double prec, bool *chunkConverged) {
+    double *temp = malloc(sizeof(double) * (unsigned) (numRows * dimension));
+    memcpy(temp, readArr, sizeof(double) * (unsigned) (numRows * dimension));
     *chunkConverged = true;
 
     for (int i = 1; i < numRows - 1; i++) {
-        for (int j = 1; j < dim - 1; j++) {
+        for (int j = 1; j < dimension - 1; j++) {
             double avg = (
-                temp[dim * (i + 1) + j] +
-                temp[dim * (i - 1) + j] + 
-                temp[dim * i + (j + 1)] + 
-                temp[dim * i + (j - 1)]
+                temp[dimension * (i + 1) + j] +
+                temp[dimension * (i - 1) + j] + 
+                temp[dimension * i + (j + 1)] + 
+                temp[dimension * i + (j - 1)]
                 ) / 4.0;
 
-            if (fabs(avg - temp[dim * i + j]) > prec) {
-                readArr[dim * i + j] = avg;
+            if (fabs(avg - temp[dimension * i + j]) > prec) {
+                readArr[dimension * i + j] = avg;
                 *chunkConverged = false;
             }
         }
@@ -106,27 +96,27 @@ void averageRows(double *readArr, int numRows, int dim, double prec, bool *chunk
 }
 
 /*
- * Function: relaxMpi
+ * Function: testIt
  * ----------------------------
  * Runs the solver and iterates until the problem has converged.
  * 
- * vals: starting array, will be an empty pointer in all processors except 
+ * testValues: starting array, will be an empty pointer in all processors except 
  *       the root
- * dim: dim of the problem array 
+ * dimension: dimension of the problem array 
  * prec: precision at which the problem has converged 
  * currentRank: rank of the current processor 
  * totalProcs: total number of processors being used
  */
-void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProcs) {
+void testIt(double *testValues, int dimension, double prec, int currentRank, int totalProcs) {
     double runtime, avgRuntime;
     int itCount = 0;
     bool hasConverged = false;
 
     // find number of rows to process per processor
     int *rowSplit = malloc(sizeof(int) * (unsigned) (totalProcs));
-    splitRowsPerProcessor(rowSplit, dim, totalProcs);
+    splitRowsPerProcessor(rowSplit, dimension, totalProcs);
 
-    printStartingInfo(dim, prec, currentRank, totalProcs, rowSplit);
+    printStartingInfo(dimension, prec, currentRank, totalProcs, rowSplit);
 
     int rowsInChunk;
     int elemsInChunk;
@@ -145,26 +135,26 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
 
                 for (int i = 1; i < totalProcs; i++) {
                     int numRowsToSend = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
-                    int elementsToSend = numRowsToSend * dim;
+                    int elementsToSend = numRowsToSend * dimension;
 
-                    MPI_Send(&vals[totalElementsSent], elementsToSend, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
-                    totalElementsSent += elementsToSend - (NUM_OF_BOUNDARY_ROWS * dim);
+                    MPI_Send(&testValues[totalElementsSent], elementsToSend, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+                    totalElementsSent += elementsToSend - (NUM_OF_BOUNDARY_ROWS * dimension);
                 }
             } else {
                 // send boundaries
-                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dim));
+                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
                 int rowsSent = 0; // the total rows covered by the sends
 
                 for (int i = 1; i < totalProcs; i++) {
                     int firstBoundaryRow = rowsSent;
                     int lastBoundaryRow = firstBoundaryRow + rowSplit[i] + 1;
 
-                    for (int j = 0; j < dim; j++) {
-                        boundaries[dim * 0 + j] = vals[dim * firstBoundaryRow + j];
-                        boundaries[dim * 1 + j] = vals[dim * lastBoundaryRow + j];
+                    for (int j = 0; j < dimension; j++) {
+                        boundaries[dimension * 0 + j] = testValues[dimension * firstBoundaryRow + j];
+                        boundaries[dimension * 1 + j] = testValues[dimension * lastBoundaryRow + j];
                     }
 
-                    MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dim), MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
+                    MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
                     rowsSent += rowSplit[i];
                 }
                 free(boundaries);
@@ -193,15 +183,15 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
                 for (int i = 1; i < totalProcs; i++) {
                     rowsInChunk = rowSplit[i] + NUM_OF_BOUNDARY_ROWS;
                     // size of the chunk in terms of doubles, without the buffers
-                    elemsInChunk = rowsInChunk * dim;
+                    elemsInChunk = rowsInChunk * dimension;
 
                     updatedRows = malloc(sizeof(double) * (unsigned) elemsInChunk);
                     MPI_Recv(updatedRows, elemsInChunk, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                     // merge the averaged chunk into the main array
                     for (int i = 0; i < rowsInChunk - NUM_OF_BOUNDARY_ROWS; i++) {
-                        for (int j = 1; j < dim - 1; j++) {
-                            vals[dim * (totalRowsReceived + i) + j] = updatedRows[dim * (i+1) + j];
+                        for (int j = 1; j < dimension - 1; j++) {
+                            testValues[dimension * (totalRowsReceived + i) + j] = updatedRows[dimension * (i+1) + j];
                         }
                     }
                     totalRowsReceived += rowsInChunk - NUM_OF_BOUNDARY_ROWS;
@@ -209,18 +199,18 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
                 }
             } else {
                 // rec boundaries & merge to main array
-                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dim));
+                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
                 int firstIndex, lastIndex = 0;
 
                 for (int i = 1; i < totalProcs; i++) { 
-                    MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dim), MPI_DOUBLE, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                     
                     firstIndex = lastIndex + 1;
                     lastIndex = firstIndex + rowSplit[i] - 1;
 
-                    for (int j = 1; j < dim -1; j++) {
-                        vals[firstIndex * dim + j] = boundaries[dim * 0 + j];
-                        vals[lastIndex * dim + j] = boundaries[dim * 1 + j];
+                    for (int j = 1; j < dimension -1; j++) {
+                        testValues[firstIndex * dimension + j] = boundaries[dimension * 0 + j];
+                        testValues[lastIndex * dimension + j] = boundaries[dimension * 1 + j];
                     }
 
                 }
@@ -231,21 +221,21 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
             if (itCount == 0) {
                 // rec chunks and store
                 rowsInChunk = rowSplit[currentRank] + NUM_OF_BOUNDARY_ROWS;
-                elemsInChunk = rowsInChunk * dim;
+                elemsInChunk = rowsInChunk * dimension;
 
                 // memory for received chunk
-                chunk = malloc(sizeof(double) * (unsigned) (rowsInChunk * dim));
+                chunk = malloc(sizeof(double) * (unsigned) (rowsInChunk * dimension));
 
                 MPI_Recv(chunk, elemsInChunk, MPI_DOUBLE, ROOT_PROCESSOR_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             } else {
                 // rec boundaries and store
-                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dim));
-                MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dim), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
+                MPI_Recv(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                 //set first row of portion to first border
-                for (int i = 0; i < dim; i++) {
+                for (int i = 0; i < dimension; i++) {
                     chunk[i] = boundaries[i];
-                    chunk[dim * (rowsInChunk - 1) + i] = boundaries[dim + i];
+                    chunk[dimension * (rowsInChunk - 1) + i] = boundaries[dimension + i];
                 }
 
                 free(boundaries);
@@ -253,7 +243,7 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
 
             // avg chunks and check converged
             bool chunkConverged = false;
-            averageRows(chunk, rowsInChunk, dim, prec, &chunkConverged);
+            averageRows(chunk, rowsInChunk, dimension, prec, &chunkConverged);
 
             // send chunk converged to root
             MPI_Send(&chunkConverged, 1, MPI_C_BOOL, ROOT_PROCESSOR_RANK, 2, MPI_COMM_WORLD);
@@ -269,14 +259,14 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
                 MPI_Send(chunk, elemsInChunk, MPI_DOUBLE, ROOT_PROCESSOR_RANK, 1, MPI_COMM_WORLD);
             } else {
                 // send boundaries to root
-                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dim));
+                double *boundaries = malloc(sizeof(double) * (unsigned) (NUM_OF_BOUNDARY_ROWS * dimension));
 
-                for (int j = 0; j < dim; j++) {
-                    boundaries[dim * 0 + j] = chunk[dim * 1 + j];
-                    boundaries[dim * 1 + j] = chunk[dim * (rowsInChunk - NUM_OF_BOUNDARY_ROWS) + j];
+                for (int j = 0; j < dimension; j++) {
+                    boundaries[dimension * 0 + j] = chunk[dimension * 1 + j];
+                    boundaries[dimension * 1 + j] = chunk[dimension * (rowsInChunk - NUM_OF_BOUNDARY_ROWS) + j];
                 }
 
-                MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dim), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 3, MPI_COMM_WORLD);
+                MPI_Send(boundaries, (NUM_OF_BOUNDARY_ROWS * dimension), MPI_DOUBLE, ROOT_PROCESSOR_RANK, 3, MPI_COMM_WORLD);
                 free(boundaries);
             }
         }
@@ -301,7 +291,7 @@ void relaxMpi(double *vals, int dim, double prec, int currentRank, int totalProc
 
     // if (currentRank == ROOT_PROCESSOR_RANK) {
     //     printf("\n\nFINAL ARRAY:\n");
-    //     printArray(vals, dim);
+    //     printArray(testValues, dimension);
     // }
 
     free(rowSplit);
@@ -314,10 +304,10 @@ int main(int argc, char *argv[]) {
     int currentRank, totalProcs;
 
     // defaults, will be updated
-    int dim = 0;
+    int dimension = 0;
     double precision = 0.01;
     char inputFilename[32];
-    double *initVals = NULL;
+    double *testValues = NULL;
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &currentRank);
@@ -334,7 +324,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
     if (argc >= 2) {
-        dim = atoi(argv[1]);
+        dimension = atoi(argv[1]);
     }
     if (argc >= 3) {
         precision = strtod(argv[2], NULL);
@@ -346,7 +336,7 @@ int main(int argc, char *argv[]) {
     // read in data in root
     if (currentRank == ROOT_PROCESSOR_RANK) {
         FILE *fp;
-        char dimStr[6]; // max dim = 99,999 + termination char
+        char dimStr[6]; // max dimension = 99,999 + termination char
         fp = fopen(inputFilename, "r");
         if (fp == NULL) {
             perror("Error opening file");
@@ -355,34 +345,34 @@ int main(int argc, char *argv[]) {
 
         // read in array dim 
         if (fgets(dimStr, 6, fp) != NULL) {
-            dim = atoi(dimStr);
+            dimension = atoi(dimStr);
         }
-        if (dim < 0) {
-            printf("\n[ERROR] dim cannot be zero.\n");
+        if (dimension < 0) {
+            printf("\n[ERROR] dimension cannot be zero.\n");
             return 1;
         }
 
         // total size of the full problem array
-        unsigned long arrSize = sizeof(double) * (unsigned) (dim * dim);
-        initVals = malloc(arrSize);
+        unsigned long arrSize = sizeof(double) * (unsigned) (dimension * dimension);
+        testValues = malloc(arrSize);
 
         // read in input array
-        for (int i=0; i<dim; i++) {
-            for (int j=0; j<dim; j++) {
+        for (int i=0; i<dimension; i++) {
+            for (int j=0; j<dimension; j++) {
                 char read[32];
                 fscanf(fp, " %s", read);
-                initVals[dim * i + j] = strtod(read, NULL);
+                testValues[dimension * i + j] = strtod(read, NULL);
             }
         }
         fclose(fp);
     }
 
     // run the solver
-    relaxMpi(initVals, dim, precision, currentRank, totalProcs);
+    testIt(testValues, dimension, precision, currentRank, totalProcs);
 
     MPI_Finalize();
-    if (initVals != NULL) {
-        free(initVals);
+    if (testValues != NULL) {
+        free(testValues);
     }
 
     return 0;
