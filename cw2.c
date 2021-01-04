@@ -86,7 +86,7 @@ void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimens
  */
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
     double runtime, avgRuntime;
-    int rootProcessor = 0, numberOfIterations = 0, numberOfBoundaryRows = 2, rowsInChunk, elemsInChunk;
+    int rootProcessor = 0, numberOfIterations = 0, numberOfBoundaryRows = 2, numberOfRowsForProcessor, elementsForProcessor;
     double *updatedRows, *dataPerProcessor = NULL;
     bool precisionNotReached = false;
 
@@ -121,12 +121,12 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 int rowsSent = 0; // the total rows covered by the sends
 
                 for (int i = 1; i < numOfProcessors; i++) {
-                    int firstBoundaryRow = rowsSent;
-                    int lastBoundaryRow = firstBoundaryRow + rowSplitPerProcessor[i] + 1;
+                    int upperBoundary = rowsSent;
+                    int lowerBoundary = upperBoundary + rowSplitPerProcessor[i] + 1;
 
                     for (int j = 0; j < dimension; j++) {
-                        boundaryRowsPerProcessor[dimension * 0 + j] = testValues[dimension * firstBoundaryRow + j];
-                        boundaryRowsPerProcessor[dimension * 1 + j] = testValues[dimension * lastBoundaryRow + j];
+                        boundaryRowsPerProcessor[dimension * 0 + j] = testValues[dimension * upperBoundary + j];
+                        boundaryRowsPerProcessor[dimension * 1 + j] = testValues[dimension * lowerBoundary + j];
                     }
 
                     MPI_Send(boundaryRowsPerProcessor, (numberOfBoundaryRows * dimension), MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
@@ -135,16 +135,16 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaryRowsPerProcessor);
             }
             precisionNotReached = true;
-            bool chunkHasConverged = false;
+            bool processorDataConverged = false;
 
             // receive chunks are converged? & updated precisionNotReached
             // precisionNotReached = true if all chunks are converged
             // check whether chunks have hit precision, if any single dataPerProcessor hasn't, withinPrecision is false
             for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating dataPerProcessor convergence from each child processor
-                MPI_Recv(&chunkHasConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&processorDataConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                if (!chunkHasConverged) {
+                if (!processorDataConverged) {
                     precisionNotReached = false;
                 }
             }
@@ -154,22 +154,22 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
             if (precisionNotReached) {
                 // rec chunks & merge to main array
-                int totalRowsReceived= 1;
+                int totalRowsReceived = 1;
                 for (int i = 1; i < numOfProcessors; i++) {
-                    rowsInChunk = rowSplitPerProcessor[i] + numberOfBoundaryRows;
+                    numberOfRowsForProcessor = rowSplitPerProcessor[i] + numberOfBoundaryRows;
                     // size of the dataPerProcessor in terms of doubles, without the buffers
-                    elemsInChunk = rowsInChunk * dimension;
+                    elementsForProcessor = numberOfRowsForProcessor * dimension;
 
-                    updatedRows = malloc(sizeof(double) * (unsigned) elemsInChunk);
-                    MPI_Recv(updatedRows, elemsInChunk, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    updatedRows = malloc(sizeof(double) * (unsigned) elementsForProcessor);
+                    MPI_Recv(updatedRows, elementsForProcessor, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                     // merge the averaged dataPerProcessor into the main array
-                    for (int i = 0; i < rowsInChunk - numberOfBoundaryRows; i++) {
+                    for (int i = 0; i < numberOfRowsForProcessor - numberOfBoundaryRows; i++) {
                         for (int j = 1; j < dimension - 1; j++) {
                             testValues[dimension * (totalRowsReceived + i) + j] = updatedRows[dimension * (i+1) + j];
                         }
                     }
-                    totalRowsReceived += rowsInChunk - numberOfBoundaryRows;
+                    totalRowsReceived += numberOfRowsForProcessor - numberOfBoundaryRows;
                     free(updatedRows);
                 }
             } else {
@@ -195,13 +195,13 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
         } else {
             if (numberOfIterations == 0) {
                 // rec chunks and store
-                rowsInChunk = rowSplitPerProcessor[currentRank] + numberOfBoundaryRows;
-                elemsInChunk = rowsInChunk * dimension;
+                numberOfRowsForProcessor = rowSplitPerProcessor[currentRank] + numberOfBoundaryRows;
+                elementsForProcessor = numberOfRowsForProcessor * dimension;
 
                 // memory for received dataPerProcessor
-                dataPerProcessor = malloc(sizeof(double) * (unsigned) (rowsInChunk * dimension));
+                dataPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfRowsForProcessor * dimension));
 
-                MPI_Recv(dataPerProcessor, elemsInChunk, MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(dataPerProcessor, elementsForProcessor, MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             } else {
                 // rec boundaryRowsPerProcessor and store
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
@@ -210,7 +210,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 //set first row of portion to first border
                 for (int i = 0; i < dimension; i++) {
                     dataPerProcessor[i] = boundaryRowsPerProcessor[i];
-                    dataPerProcessor[dimension * (rowsInChunk - 1) + i] = boundaryRowsPerProcessor[dimension + i];
+                    dataPerProcessor[dimension * (numberOfRowsForProcessor - 1) + i] = boundaryRowsPerProcessor[dimension + i];
                 }
 
                 free(boundaryRowsPerProcessor);
@@ -218,7 +218,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
             // average chunks and check converged
             bool processorDataConverged = false;
-            calculateAverage(dataPerProcessor, rowsInChunk, dimension, prec, &processorDataConverged);
+            calculateAverage(dataPerProcessor, numberOfRowsForProcessor, dimension, prec, &processorDataConverged);
 
             // send dataPerProcessor converged to root
             MPI_Send(&processorDataConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
@@ -231,14 +231,14 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 // send updated chunks to root
                 // send back to the master process only modified inner rows of the dataPerProcessor
 
-                MPI_Send(dataPerProcessor, elemsInChunk, MPI_DOUBLE, rootProcessor, 1, MPI_COMM_WORLD);
+                MPI_Send(dataPerProcessor, elementsForProcessor, MPI_DOUBLE, rootProcessor, 1, MPI_COMM_WORLD);
             } else {
                 // send boundaryRowsPerProcessor to root
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
 
                 for (int j = 0; j < dimension; j++) {
                     boundaryRowsPerProcessor[dimension * 0 + j] = dataPerProcessor[dimension * 1 + j];
-                    boundaryRowsPerProcessor[dimension * 1 + j] = dataPerProcessor[dimension * (rowsInChunk - numberOfBoundaryRows) + j];
+                    boundaryRowsPerProcessor[dimension * 1 + j] = dataPerProcessor[dimension * (numberOfRowsForProcessor - numberOfBoundaryRows) + j];
                 }
 
                 MPI_Send(boundaryRowsPerProcessor, (numberOfBoundaryRows * dimension), MPI_DOUBLE, rootProcessor, 3, MPI_COMM_WORLD);
