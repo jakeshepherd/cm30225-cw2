@@ -85,19 +85,23 @@ void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimens
  * numOfProcessors: total number of processors being used
  */
 void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
-    double runtime, avgRuntime;
+    double startTime, runTime, averageRuntime;
     int rootProcessor = 0, numberOfIterations = 0, numberOfBoundaryRows = 2, numberOfRowsForProcessor, elementsForProcessor;
     double *updatedRows, *dataPerProcessor = NULL;
     bool precisionNotReached = false;
+
+    if (currentRank == rootProcessor) {
+        printf("INTIAL ARRAY\n");
+        printArray(testValues, dimension);
+    }
 
     // find number of rows to process per processor
     int *rowSplitPerProcessor = malloc(sizeof(int) * (unsigned) (numOfProcessors));
     distributeRowIndexesToProccesors(rowSplitPerProcessor, dimension, numOfProcessors);
 
-    // Start timing
     // Barrier here to make sure that all the processors available are all ready to go
     MPI_Barrier(MPI_COMM_WORLD);
-    runtime = MPI_Wtime();
+    startTime = MPI_Wtime();
 
     do { // iterate until converged
         if (currentRank == rootProcessor) {
@@ -245,8 +249,6 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaryRowsPerProcessor);
             }
         }
-
-        printf("it: %d\n", numberOfIterations);
         numberOfIterations++;
     } while (!precisionNotReached);
 
@@ -254,26 +256,22 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     // This is so that we do not start calculating the runtime before the work has been done
     // We can then stop the timer and work out the runtime.
     MPI_Barrier(MPI_COMM_WORLD);
-    runtime = MPI_Wtime() - runtime;
+    runTime = MPI_Wtime() - startTime;
 
     // reduce (sum) all processor runtimes into a single value in the root
-    MPI_Reduce(&runtime, &avgRuntime, 1, MPI_DOUBLE, MPI_SUM, rootProcessor, MPI_COMM_WORLD);
-
-    // and get the average runtime
-    if (currentRank == rootProcessor) {
-        avgRuntime /= numOfProcessors;
-        printf("-------------------\nRuntime: %f\n", avgRuntime);
-    }
+    MPI_Reduce(&runTime, &averageRuntime, 1, MPI_DOUBLE, MPI_SUM, rootProcessor, MPI_COMM_WORLD);
 
     if (currentRank == rootProcessor) {
+        averageRuntime /= numOfProcessors;
+        printf("-------------------\nRuntime: %f\n", averageRuntime);
         printf("\n\nFINAL ARRAY:\n");
         printArray(testValues, dimension);
     }
 
-    free(rowSplitPerProcessor);
     if (dataPerProcessor != NULL) {
         free(dataPerProcessor);
     }
+    free(rowSplitPerProcessor);
 }
 
 int main(int argc, char *argv[]) {
