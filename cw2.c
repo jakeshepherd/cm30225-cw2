@@ -141,8 +141,8 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             precisionReached = true;
             bool processorDataConverged = false;
 
-            // precisionReached = true if all chunks are converged
-            // check whether chunks have hit precision, if any single dataPerProcessor hasn't, withinPrecision is false
+            // Receive from all processors if they have reached precision
+            // if they have not, then set precisionReached to false so that we can start the loop again later
             for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating dataPerProcessor convergence from each child processor
                 MPI_Recv(&processorDataConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -152,12 +152,14 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 }
             }
 
-            // broadcast array convergence to child processors
+            // Let all the processors know if the precision has been reached
+            // This is so that they can stop processing if the precision has been reached
             MPI_Bcast(&precisionReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
+
+            // If the precision has been reached, we can start putting our array back together
             if (precisionReached) {
-                // rec chunks & merge to main array
-                int totalRowsReceived = 1;
+                int rowsReceivedTracker = 1;
                 for (int i = 1; i < numOfProcessors; i++) {
                     numberOfRowsForProcessor = rowSplitPerProcessor[i] + numberOfBoundaryRows;
                     // size of the dataPerProcessor in terms of doubles, without the buffers
@@ -169,10 +171,10 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     // merge the averaged dataPerProcessor into the main array
                     for (int i = 0; i < numberOfRowsForProcessor - numberOfBoundaryRows; i++) {
                         for (int j = 1; j < dimension - 1; j++) {
-                            testValues[dimension * (totalRowsReceived + i) + j] = updatedRows[dimension * (i+1) + j];
+                            testValues[dimension * (rowsReceivedTracker + i) + j] = updatedRows[dimension * (i+1) + j];
                         }
                     }
-                    totalRowsReceived += numberOfRowsForProcessor - numberOfBoundaryRows;
+                    rowsReceivedTracker += numberOfRowsForProcessor - numberOfBoundaryRows;
                     free(updatedRows);
                 }
             } else {
