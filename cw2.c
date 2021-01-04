@@ -82,7 +82,7 @@ int *distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, 
 /*
  * Each processor will run this function individually on the data that it has to average it
  */
-void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimension, double prec, bool *processorPrecisionReached) {
+void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimension, double precision, bool *processorPrecisionReached) {
     double *temp = malloc(sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
     memcpy(temp, oldAverages, sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
     *processorPrecisionReached = true;
@@ -96,7 +96,7 @@ void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimens
                 temp[dimension * i + (j - 1)]
             ) / 4.0;
 
-            if (fabs(temp[dimension * i + j] - average) > prec) {
+            if (fabs(temp[dimension * i + j] - average) > precision) {
                 oldAverages[dimension * i + j] = average;
                 *processorPrecisionReached = false;
             }
@@ -106,19 +106,7 @@ void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimens
     free(temp);
 }
 
-/*
- * Function: testIt
- * ----------------------------
- * Runs the solver and iterates until the problem has converged.
- * 
- * testValues: starting array, will be an empty pointer in all processors except 
- *       the root
- * dimension: dimension of the problem array 
- * prec: precision at which the problem has converged 
- * currentRank: rank of the current processor 
- * numOfProcessors: total number of processors being used
- */
-void testIt(double *testValues, int dimension, double prec, int currentRank, int numOfProcessors) {
+void testIt(double *testValues, int dimension, double precision, int currentRank, int numOfProcessors) {
     double startTime, runTime, averageRuntime;
     int rootProcessor = 0, numberOfIterations = 0, numberOfBoundaryRows = 2, numberOfRowsForProcessor, elementsForProcessor;
     double *updatedRows, *dataPerProcessor = NULL;
@@ -252,7 +240,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
 
             bool processorPrecisionReached = false;
-            calculateAverage(dataPerProcessor, numberOfRowsForProcessor, dimension, prec, &processorPrecisionReached);
+            calculateAverage(dataPerProcessor, numberOfRowsForProcessor, dimension, precision, &processorPrecisionReached);
 
             // Send whether our data has reached precision or not
             MPI_Send(&processorPrecisionReached, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
