@@ -156,19 +156,17 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             // This is so that they can stop processing if the precision has been reached
             MPI_Bcast(&precisionReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
-
             // If the precision has been reached, we can start putting our array back together
             if (precisionReached) {
                 int rowsReceivedTracker = 1;
                 for (int i = 1; i < numOfProcessors; i++) {
                     numberOfRowsForProcessor = rowSplitPerProcessor[i] + numberOfBoundaryRows;
-                    // size of the dataPerProcessor in terms of doubles, without the buffers
                     elementsForProcessor = numberOfRowsForProcessor * dimension;
 
                     updatedRows = malloc(sizeof(double) * (unsigned) elementsForProcessor);
                     MPI_Recv(updatedRows, elementsForProcessor, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                    // merge the averaged dataPerProcessor into the main array
+                    // Merge the data from the processor back into testValues
                     for (int i = 0; i < numberOfRowsForProcessor - numberOfBoundaryRows; i++) {
                         for (int j = 1; j < dimension - 1; j++) {
                             testValues[dimension * (rowsReceivedTracker + i) + j] = updatedRows[dimension * (i+1) + j];
@@ -177,22 +175,23 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     rowsReceivedTracker += numberOfRowsForProcessor - numberOfBoundaryRows;
                     free(updatedRows);
                 }
-            } else {
-                // rec boundaryRowsPerProcessor & merge to main array
-                double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
+            } 
+            // If the precision is not reached, we only need to merge the boundary rows into testVals
+            // Because the processors are keeping a track of the other values
+            else {
                 int firstIndex, lastIndex = 0;
+                double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
 
                 for (int i = 1; i < numOfProcessors; i++) { 
                     MPI_Recv(boundaryRowsPerProcessor, (numberOfBoundaryRows * dimension), MPI_DOUBLE, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    
+
                     firstIndex = lastIndex + 1;
                     lastIndex = firstIndex + rowSplitPerProcessor[i] - 1;
 
-                    for (int j = 1; j < dimension -1; j++) {
+                    for (int j = 1; j < dimension-1; j++) {
                         testValues[firstIndex * dimension + j] = boundaryRowsPerProcessor[dimension * 0 + j];
                         testValues[lastIndex * dimension + j] = boundaryRowsPerProcessor[dimension * 1 + j];
                     }
-
                 }
 
                 free(boundaryRowsPerProcessor);
