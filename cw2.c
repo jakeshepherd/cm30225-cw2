@@ -48,10 +48,10 @@ void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, 
 /*
  * Each processor will run this function individually on the data that it has to average it
  */
-void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimension, double prec, bool *processorDataConverged) {
+void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimension, double prec, bool *processorPrecisionReached) {
     double *temp = malloc(sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
     memcpy(temp, oldAverages, sizeof(double) * (unsigned) (numberOfRowsToAverage * dimension));
-    *processorDataConverged = true;
+    *processorPrecisionReached = true;
 
     for (int i = 1; i < numberOfRowsToAverage - 1; i++) {
         for (int j = 1; j < dimension - 1; j++) {
@@ -64,7 +64,7 @@ void calculateAverage(double *oldAverages, int numberOfRowsToAverage, int dimens
 
             if (fabs(temp[dimension * i + j] - average) > prec) {
                 oldAverages[dimension * i + j] = average;
-                *processorDataConverged = false;
+                *processorPrecisionReached = false;
             }
         }
     }
@@ -139,15 +139,15 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
 
             precisionReached = true;
-            bool processorDataConverged = false;
+            bool processorPrecisionReached = false;
 
             // Receive from all processors if they have reached precision
             // if they have not, then set precisionReached to false so that we can start the loop again later
             for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating dataPerProcessor convergence from each child processor
-                MPI_Recv(&processorDataConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(&processorPrecisionReached, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                if (!processorDataConverged) {
+                if (!processorPrecisionReached) {
                     precisionReached = false;
                 }
             }
@@ -197,47 +197,41 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaryRowsPerProcessor);
             }
         } else {
+            // If it's the first iteration, we get a lot of data so handle separately
             if (numberOfIterations == 0) {
-                // rec chunks and store
                 numberOfRowsForProcessor = rowSplitPerProcessor[currentRank] + numberOfBoundaryRows;
                 elementsForProcessor = numberOfRowsForProcessor * dimension;
-
-                // memory for received dataPerProcessor
                 dataPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfRowsForProcessor * dimension));
 
                 MPI_Recv(dataPerProcessor, elementsForProcessor, MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            } else {
-                // rec boundaryRowsPerProcessor and store
+            } 
+            // On every other iteration, we only get the boundary rows
+            else {
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
                 MPI_Recv(boundaryRowsPerProcessor, (numberOfBoundaryRows * dimension), MPI_DOUBLE, rootProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                //set first row of portion to first border
                 for (int i = 0; i < dimension; i++) {
                     dataPerProcessor[i] = boundaryRowsPerProcessor[i];
                     dataPerProcessor[dimension * (numberOfRowsForProcessor - 1) + i] = boundaryRowsPerProcessor[dimension + i];
                 }
-
                 free(boundaryRowsPerProcessor);
             }
 
-            // average chunks and check converged
-            bool processorDataConverged = false;
-            calculateAverage(dataPerProcessor, numberOfRowsForProcessor, dimension, prec, &processorDataConverged);
+            bool processorPrecisionReached = false;
+            calculateAverage(dataPerProcessor, numberOfRowsForProcessor, dimension, prec, &processorPrecisionReached);
 
-            // send dataPerProcessor converged to root
-            MPI_Send(&processorDataConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
+            // Send whether our data has reached precision or not
+            MPI_Send(&processorPrecisionReached, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
 
-            // receive broadcast for (all array) precisionReached
-            // receive withinPrecision bool from the master process, is a blocking call so also acts as a synchronise
+            // Receive the broadcast from root on the state of precisionReached
             MPI_Bcast(&precisionReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
+            // If precision reached, send our averaged data back to the root
             if (precisionReached) {
-                // send updated chunks to root
-                // send back to the master process only modified inner rows of the dataPerProcessor
-
                 MPI_Send(dataPerProcessor, elementsForProcessor, MPI_DOUBLE, rootProcessor, 1, MPI_COMM_WORLD);
-            } else {
-                // send boundaryRowsPerProcessor to root
+            } 
+            // If not reached, then we only want to send the boundary rows for the data back to update testVals
+            else {
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
 
                 for (int j = 0; j < dimension; j++) {
@@ -258,7 +252,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     MPI_Barrier(MPI_COMM_WORLD);
     runTime = MPI_Wtime() - startTime;
 
-    // reduce (sum) all processor runtimes into a single value in the root
+    // Use reduce to reduce (add) all the runtimes down into averageRuntime which is then later actually averaged
     MPI_Reduce(&runTime, &averageRuntime, 1, MPI_DOUBLE, MPI_SUM, rootProcessor, MPI_COMM_WORLD);
 
     if (currentRank == rootProcessor) {
