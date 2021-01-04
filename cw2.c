@@ -103,7 +103,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     MPI_Barrier(MPI_COMM_WORLD);
     startTime = MPI_Wtime();
 
-    do { // iterate until converged
+    do {
         if (currentRank == rootProcessor) {
             // If this is the first time going round
             // send every element of the data that needs to be processed
@@ -111,21 +111,19 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 int totalElementsSent = 0;
 
                 for (int i = 1; i < numOfProcessors; i++) {
-                    int numRowsToSend = rowSplitPerProcessor[i] + numberOfBoundaryRows;
-                    int elementsToSend = numRowsToSend * dimension;
+                    int elementsToSend = (rowSplitPerProcessor[i] + numberOfBoundaryRows) * dimension;
 
                     MPI_Send(&testValues[totalElementsSent], elementsToSend, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
                     totalElementsSent += elementsToSend - (numberOfBoundaryRows * dimension);
                 }
             } 
-            // Else, only send the boundaryRowsPerProcessor of the data that needs to be processed
+            // else, only send the boundaryRowsPerProcessor of the data that needs to be processed
             else {
-                // send boundaryRowsPerProcessor
+                int numberOfRowsSent = 0;
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
-                int rowsSent = 0; // the total rows covered by the sends
 
                 for (int i = 1; i < numOfProcessors; i++) {
-                    int upperBoundary = rowsSent;
+                    int upperBoundary = numberOfRowsSent;
                     int lowerBoundary = upperBoundary + rowSplitPerProcessor[i] + 1;
 
                     for (int j = 0; j < dimension; j++) {
@@ -134,10 +132,11 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     }
 
                     MPI_Send(boundaryRowsPerProcessor, (numberOfBoundaryRows * dimension), MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
-                    rowsSent += rowSplitPerProcessor[i];
+                    numberOfRowsSent += rowSplitPerProcessor[i];
                 }
                 free(boundaryRowsPerProcessor);
             }
+
             precisionNotReached = true;
             bool processorDataConverged = false;
 
