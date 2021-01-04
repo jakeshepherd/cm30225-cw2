@@ -61,34 +61,22 @@ double *readArrayFromFile(int argc, char *argv[], double *testValues, int curren
     return testValues;
 }
 
-/*
- * Function: distributeRowIndexesToProccesors
- * ----------------------------
- * Allocate an even distribution of rows to available processors. The 
- * available processors is equal to the total processors - 1. If the 
- * problem size is not evenly divisable, the remainders will be spread
- * over the first n processors, with n equal to the remainder rows.
- * 
- * rowSplitPerProcessor: int array to store the result
- * dimension: dimension of the problem array
- * numOfProcessors: total processors being used
- */
-void distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, int numOfProcessors) {
-    // accounting for no work in root
-    int useableProcs = numOfProcessors - 1;
+// This function is to evenly distribute any work to the number of processors available
+int *distributeRowIndexesToProccesors(int *rowSplitPerProcessor, int dimension, int numOfProcessors) {
+    int useableProcs = numOfProcessors-1;
 
     rowSplitPerProcessor[0] = 0;
     for (int i = 1; i <= useableProcs; i++) {
-        rowSplitPerProcessor[i] = (dimension - 2) / useableProcs;
+        rowSplitPerProcessor[i] = (dimension-2) / useableProcs;
     }
 
     int remainder = (dimension - 2) % useableProcs;
     if (remainder > 0) {
-        // evenly distribute the remainder rows
         for (int i = 1; i <= remainder; i++) {
             rowSplitPerProcessor[i]++;
         }
     }
+    return rowSplitPerProcessor;
 }
 
 /*
@@ -143,7 +131,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 
     // find number of rows to process per processor
     int *rowSplitPerProcessor = malloc(sizeof(int) * (unsigned) (numOfProcessors));
-    distributeRowIndexesToProccesors(rowSplitPerProcessor, dimension, numOfProcessors);
+    rowSplitPerProcessor = distributeRowIndexesToProccesors(rowSplitPerProcessor, dimension, numOfProcessors);
 
     // Barrier here to make sure that all the processors available are all ready to go
     MPI_Barrier(MPI_COMM_WORLD);
