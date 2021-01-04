@@ -88,7 +88,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
     double startTime, runTime, averageRuntime;
     int rootProcessor = 0, numberOfIterations = 0, numberOfBoundaryRows = 2, numberOfRowsForProcessor, elementsForProcessor;
     double *updatedRows, *dataPerProcessor = NULL;
-    bool precisionNotReached = false;
+    bool precisionReached = false;
 
     if (currentRank == rootProcessor) {
         printf("INTIAL ARRAY\n");
@@ -122,6 +122,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 int numberOfRowsSent = 0;
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
 
+                // find the boundaries rows for each part of the data and send them to each processor
                 for (int i = 1; i < numOfProcessors; i++) {
                     int upperBoundary = numberOfRowsSent;
                     int lowerBoundary = upperBoundary + rowSplitPerProcessor[i] + 1;
@@ -137,25 +138,24 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                 free(boundaryRowsPerProcessor);
             }
 
-            precisionNotReached = true;
+            precisionReached = true;
             bool processorDataConverged = false;
 
-            // receive chunks are converged? & updated precisionNotReached
-            // precisionNotReached = true if all chunks are converged
+            // precisionReached = true if all chunks are converged
             // check whether chunks have hit precision, if any single dataPerProcessor hasn't, withinPrecision is false
             for (int i = 1; i < numOfProcessors; i++) {
                 // receive bool indicating dataPerProcessor convergence from each child processor
                 MPI_Recv(&processorDataConverged, 1, MPI_C_BOOL, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
                 if (!processorDataConverged) {
-                    precisionNotReached = false;
+                    precisionReached = false;
                 }
             }
 
             // broadcast array convergence to child processors
-            MPI_Bcast(&precisionNotReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
+            MPI_Bcast(&precisionReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
-            if (precisionNotReached) {
+            if (precisionReached) {
                 // rec chunks & merge to main array
                 int totalRowsReceived = 1;
                 for (int i = 1; i < numOfProcessors; i++) {
@@ -226,11 +226,11 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             // send dataPerProcessor converged to root
             MPI_Send(&processorDataConverged, 1, MPI_C_BOOL, rootProcessor, 2, MPI_COMM_WORLD);
 
-            // receive broadcast for (all array) precisionNotReached
+            // receive broadcast for (all array) precisionReached
             // receive withinPrecision bool from the master process, is a blocking call so also acts as a synchronise
-            MPI_Bcast(&precisionNotReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
+            MPI_Bcast(&precisionReached, 1, MPI_C_BOOL, rootProcessor, MPI_COMM_WORLD);
 
-            if (precisionNotReached) {
+            if (precisionReached) {
                 // send updated chunks to root
                 // send back to the master process only modified inner rows of the dataPerProcessor
 
@@ -249,7 +249,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             }
         }
         numberOfIterations++;
-    } while (!precisionNotReached);
+    } while (!precisionReached);
 
     // Barrier here to make sure that every processor has finished it's work
     // This is so that we do not start calculating the runtime before the work has been done
