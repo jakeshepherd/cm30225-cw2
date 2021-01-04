@@ -15,6 +15,52 @@ void printArray(double *arr, int dimension) {
    }
 }
 
+double *readArrayFromFile(int argc, char *argv[], double *testValues, int currentRank, int *dimension, double *precision) {
+    char inputFilename[32];
+
+    if (argc >= 2) {
+        *dimension = atoi(argv[1]);
+    }
+    if (argc >= 3) {
+        *precision = strtod(argv[2], NULL);
+    }
+    if (argc >= 4) {
+        strcpy(inputFilename, argv[3]);
+    }
+
+    if (currentRank == 0) {
+        FILE *fp;
+        char dimStr[6];
+        fp = fopen(inputFilename, "r");
+        if (fp == NULL) {
+            perror("Error opening file");
+            exit(-1);
+        }
+
+        if (fgets(dimStr, 6, fp) != NULL) {
+            *dimension = atoi(dimStr);
+        }
+        if (*&dimension < 0) {
+            printf("\n[ERROR] dimension cannot be zero.\n");
+            exit(1);
+        }
+
+        unsigned long arrSize = sizeof(double) * (unsigned) (*dimension * *dimension);
+        testValues = malloc(arrSize);
+
+        for (int i=0; i<*dimension; i++) {
+            for (int j=0; j<*dimension; j++) {
+                char read[32];
+                fscanf(fp, " %s", read);
+                testValues[*dimension * i + j] = strtod(read, NULL);
+            }
+        }
+        fclose(fp);
+    }
+
+    return testValues;
+}
+
 /*
  * Function: distributeRowIndexesToProccesors
  * ----------------------------
@@ -176,7 +222,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
                     free(updatedRows);
                 }
             } 
-            // If the precision is not reached, we only need to merge the boundary rows into testVals
+            // If the precision is not reached, we only need to merge the boundary rows into testValues
             // Because the processors are keeping a track of the other values
             else {
                 int firstIndex, lastIndex = 0;
@@ -230,7 +276,7 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
             if (precisionReached) {
                 MPI_Send(dataPerProcessor, elementsForProcessor, MPI_DOUBLE, rootProcessor, 1, MPI_COMM_WORLD);
             } 
-            // If not reached, then we only want to send the boundary rows for the data back to update testVals
+            // If not reached, then we only want to send the boundary rows for the data back to update testValues
             else {
                 double *boundaryRowsPerProcessor = malloc(sizeof(double) * (unsigned) (numberOfBoundaryRows * dimension));
 
@@ -269,72 +315,19 @@ void testIt(double *testValues, int dimension, double prec, int currentRank, int
 }
 
 int main(int argc, char *argv[]) {
-    int currentRank, numOfProcessors, dimension = 0, rootProcessor = 0;
+    int currentRank, numOfProcessors, dimension = 0;
     double precision = 0.01;
     double *testValues = NULL;
-    char inputFilename[32];
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &currentRank);
     MPI_Comm_size(MPI_COMM_WORLD, &numOfProcessors);
 
-    if (numOfProcessors < 2) {
-        printf("-- There must be at least 2 processors.\n");
-        exit(-1);
-    }
-
-    // process command args
-    if (argc <= 1) {
-        printf("\nNo arguments found. Something's gone wrong.\n");
-        return -1;
-    }
-    if (argc >= 2) {
-        dimension = atoi(argv[1]);
-    }
-    if (argc >= 3) {
-        precision = strtod(argv[2], NULL);
-    }
-    if (argc >= 4) {
-        strcpy(inputFilename, argv[3]);
-    }
-
-    // read in data in root
-    if (currentRank == rootProcessor) {
-        FILE *fp;
-        char dimStr[6]; // max dimension = 99,999 + termination char
-        fp = fopen(inputFilename, "r");
-        if (fp == NULL) {
-            perror("Error opening file");
-            return -1;
-        }
-
-        // read in array dim 
-        if (fgets(dimStr, 6, fp) != NULL) {
-            dimension = atoi(dimStr);
-        }
-        if (dimension < 0) {
-            printf("\n[ERROR] dimension cannot be zero.\n");
-            return 1;
-        }
-
-        // total size of the full problem array
-        unsigned long arrSize = sizeof(double) * (unsigned) (dimension * dimension);
-        testValues = malloc(arrSize);
-
-        // read in input array
-        for (int i=0; i<dimension; i++) {
-            for (int j=0; j<dimension; j++) {
-                char read[32];
-                fscanf(fp, " %s", read);
-                testValues[dimension * i + j] = strtod(read, NULL);
-            }
-        }
-        fclose(fp);
-    }
+    testValues = readArrayFromFile(argc, argv, testValues, currentRank, &dimension, &precision);
 
     testIt(testValues, dimension, precision, currentRank, numOfProcessors);
-
     MPI_Finalize();
+
     if (testValues != NULL) {
         free(testValues);
     }
